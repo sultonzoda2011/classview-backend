@@ -1,0 +1,71 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  moduleFormat = "cjs"
+  importFileExtension = ""
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  User
+  Admin
+  SuperAdmin
+}
+
+model Center {
+  id         Int         @id @default(autoincrement())
+  name       String
+  address    String
+  classRooms ClassRoom[]
+  accounts   Account[]
+}
+
+model ClassRoom {
+  id        Int       @id @default(autoincrement())
+  name      String
+  cameraUrl String
+  centerId  Int
+  center    Center    @relation(fields: [centerId], references: [id], onDelete: Cascade)
+  accounts  Account[]
+
+  @@index([centerId])
+}
+
+model Account {
+  id           String     @id @default(uuid())
+  fullName     String
+  childName    String?
+  phoneNumber  String     @unique
+  email        String     @unique
+  userName     String?    @unique
+  passwordHash String
+  mustChangePw Boolean    @default(true)
+  role         Role       @default(User)
+  connect      Boolean    @default(false)
+  startTime    String?
+  endTime      String?
+  createdAt    DateTime   @default(now())
+  centerId     Int?
+  classRoomId  Int?
+  center       Center?    @relation(fields: [centerId], references: [id], onDelete: Restrict)
+  classRoom    ClassRoom? @relation(fields: [classRoomId], references: [id], onDelete: SetNull)
+
+  @@index([centerId])
+  @@index([classRoomId])
+}
+
+model Otp {
+  id        Int      @id @default(autoincrement())
+  email     String
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  used      Boolean  @default(false)
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
