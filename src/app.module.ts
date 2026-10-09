@@ -10,6 +10,7 @@ import { ResponseInterceptor } from './common/response.interceptor'
 import { HealthController } from './health/health.controller'
 import { MailModule } from './mail/mail.module'
 import { PrismaModule } from './prisma/prisma.module'
+import { StreamsModule } from './streams/streams.module'
 import { UsersModule } from './users/users.module'
 
 @Module({
@@ -22,6 +23,7 @@ import { UsersModule } from './users/users.module'
     UsersModule,
     CentersModule,
     ClassRoomsModule,
+    StreamsModule,
   ],
   controllers: [HealthController],
   providers: [

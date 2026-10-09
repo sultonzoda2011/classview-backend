@@ -44,6 +44,9 @@ SuperAdmin нельзя создать через API, только `npm run see
 | POST | `/Users/create-employee` | Admin, SuperAdmin; создаёт Admin |
 | GET | `/Users/:id` | свой профиль / Admin своего центра / SuperAdmin |
 | PUT, DELETE | `/Users/:id` | Admin своего центра, SuperAdmin |
+| GET | `/Streams/playlist.m3u8` | User; подписанная ссылка на HLS-поток своего класса |
+| GET | `/Streams/:classRoomId/playlist.m3u8` | Admin (свой центр), SuperAdmin |
+| GET | `/Streams/files/:classRoomId/:exp/:sig/:file` | публичный, защищён подписью |
 | GET | `/health` | публичный |
 
 Новому пользователю генерируется временный пароль и отправляется на email; после первого входа его нужно сменить (`mustChangePw` в токене).
@@ -61,6 +64,8 @@ npm test          # юнит-тесты окна доступа
 npm run build
 ```
 
-## Что дальше
+## Стримы
 
-- Стримы: `GET /Streams/:classRoomId/playlist.m3u8` и `GET /Streams/playlist.m3u8` (FFmpeg RTSP -> HLS, запуск по запросу, подписанные URL, проверка окна доступа через `common/access-window.ts`).
+Камера (RTSP/HTTP) конвертируется FFmpeg в HLS (`-c:v copy`, без перекодирования видео). Процесс стартует при первом запросе и останавливается через 60 секунд без зрителей.
+Эндпоинты `playlist.m3u8` возвращают JSON `{data: "/api/Streams/files/..."}`, а сами сегменты отдаются по ссылке с подписью в пути (тег `<video>` не умеет слать `Authorization`). Родителю ссылка выдаётся, только если `connect = true` и сейчас внутри его окна `startTime-endTime`; срок ссылки не больше конца окна.
+Нужен установленный `ffmpeg` (в Docker-образе уже есть). Браузеры играют только H.264: если камера отдаёт H.265, переключите её на H.264 в настройках камеры.
