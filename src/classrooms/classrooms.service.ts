@@ -2,13 +2,17 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { AuthUser } from '../common/decorators'
 import { Role } from '../generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { StreamsService } from '../streams/streams.service'
 import { CreateClassRoomDto, UpdateClassRoomDto } from './dto'
 
 const select = { id: true, name: true, centerId: true, cameraUrl: true } as const
 
 @Injectable()
 export class ClassRoomsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly streams: StreamsService,
+  ) {}
 
   async findAll(actor: AuthUser) {
     if (actor.role === Role.User) {
@@ -60,11 +64,17 @@ export class ClassRoomsService {
         }
       }
     }
-    return this.prisma.classRoom.update({ where: { id }, data: dto, select })
+    const updated = await this.prisma.classRoom.update({ where: { id }, data: dto, select })
+    if (dto.cameraUrl !== undefined && dto.cameraUrl !== current.cameraUrl) {
+      await this.streams.invalidate(id)
+    }
+    return updated
   }
 
   async remove(actor: AuthUser, id: number) {
     await this.getScoped(actor, id)
+    // Clear the running process and its signed-link files before removing the classroom.
+    await this.streams.invalidate(id)
     await this.prisma.classRoom.delete({ where: { id } })
   }
 }

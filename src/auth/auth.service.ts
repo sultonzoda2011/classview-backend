@@ -101,7 +101,11 @@ export class AuthService {
     if (!otp) return generic
 
     try {
-      await this.mail.sendOtp(dto.email, code)
+      const sent = await this.mail.sendOtp(dto.email, code)
+      if (!sent) {
+        // Dev mode may intentionally log emails instead of delivering them.
+        await this.prisma.otp.deleteMany({ where: { id: otp.id, used: false, verified: false } })
+      }
     } catch (e) {
       this.logger.error(`Не удалось отправить OTP на ${dto.email}: ${(e as Error).message}`)
       // Do not leave an undelivered code active or force the user to wait a minute.

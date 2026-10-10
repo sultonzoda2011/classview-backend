@@ -1,4 +1,5 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import * as bcrypt from 'bcrypt'
 import { randomInt } from 'node:crypto'
 import { AuthUser } from '../common/decorators'
@@ -36,6 +37,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
+    private readonly config: ConfigService,
   ) {}
 
   /** Фронт ждёт childName строкой */
@@ -121,6 +123,11 @@ export class UsersService {
       select,
     })
     const sent = await this.sendCredentials(created.email, created.fullName, password)
+    if (!sent && this.config.get('NODE_ENV') === 'production') {
+      // Production must not leave an account active when its one-time password was not delivered.
+      await this.prisma.account.delete({ where: { id: created.id } })
+      throw new ServiceUnavailableException('Не удалось отправить данные для входа. Аккаунт не создан — попробуйте ещё раз позже.')
+    }
     return { user: this.view(created), mailSent: sent }
   }
 
@@ -142,6 +149,11 @@ export class UsersService {
       select,
     })
     const sent = await this.sendCredentials(created.email, created.fullName, password)
+    if (!sent && this.config.get('NODE_ENV') === 'production') {
+      // Production must not leave an account active when its one-time password was not delivered.
+      await this.prisma.account.delete({ where: { id: created.id } })
+      throw new ServiceUnavailableException('Не удалось отправить данные для входа. Аккаунт не создан — попробуйте ещё раз позже.')
+    }
     return { user: this.view(created), mailSent: sent }
   }
 

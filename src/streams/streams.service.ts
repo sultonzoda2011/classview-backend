@@ -26,6 +26,7 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(StreamsService.name)
   private readonly running = new Map<number, Running>()
   private readonly starting = new Map<number, Promise<Running>>()
+  private readonly stopping = new Map<number, Promise<void>>()
   private readonly baseDir: string
   private readonly ffmpeg: string
   private readonly tz: string
@@ -49,9 +50,12 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
     this.reaper = setInterval(() => this.reapIdle(), 15_000)
   }
 
-  onModuleDestroy() {
+  async onModuleDestroy() {
     if (this.reaper) clearInterval(this.reaper)
-    for (const id of [...this.running.keys()]) this.stop(id)
+    // Wait for startup attempts too, otherwise FFmpeg can become an orphan during shutdown.
+    await Promise.all([...this.starting.values()].map((pending) => pending.catch(() => undefined)))
+    await Promise.all([...this.running.keys()].map((id) => this.stop(id)))
+    await Promise.all([...this.stopping.values()])
   }
 
   // ---------- подписанные ссылки: /Streams/files/:classRoomId/:exp/:sig/:file ----------
@@ -114,11 +118,22 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
     if (r) r.lastAccess = Date.now()
   }
 
+  /** Stop the camera process and clear HLS files when its URL changes or its classroom is deleted. */
+  async invalidate(classRoomId: number): Promise<void> {
+    const pending = this.starting.get(classRoomId)
+    if (pending) await pending.catch(() => undefined)
+    await this.stop(classRoomId)
+  }
+
   fileDir(classRoomId: number) {
     return join(this.baseDir, String(classRoomId))
   }
 
   private async ensureRunning(classRoomId: number, cameraUrl: string): Promise<Running> {
+    // Prevent a new FFmpeg process from writing into a directory while its previous owner exits.
+    const stopping = this.stopping.get(classRoomId)
+    if (stopping) await stopping
+
     const existing = this.running.get(classRoomId)
     if (existing) {
       existing.lastAccess = Date.now()
@@ -190,16 +205,47 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
     })
   }
 
-  private stop(classRoomId: number) {
+  private stop(classRoomId: number): Promise<void> {
+    const pending = this.stopping.get(classRoomId)
+    if (pending) return pending
+
     const r = this.running.get(classRoomId)
-    if (!r) return
+    if (!r) return Promise.resolve()
     this.running.delete(classRoomId)
-    r.proc.kill('SIGTERM')
-    setTimeout(() => rmSync(r.dir, { recursive: true, force: true }), 2000)
+
+    const stopping = new Promise<void>((resolve) => {
+      let settled = false
+      let forceKill: NodeJS.Timeout | undefined
+      const finish = () => {
+        if (settled) return
+        settled = true
+        if (forceKill) clearTimeout(forceKill)
+        r.proc.off('exit', finish)
+        rmSync(r.dir, { recursive: true, force: true })
+        resolve()
+      }
+
+      if (r.proc.exitCode !== null || r.proc.signalCode !== null) {
+        finish()
+        return
+      }
+
+      r.proc.once('exit', finish)
+      forceKill = setTimeout(() => {
+        r.proc.kill('SIGKILL')
+        // Prefer the real exit event before deleting files; keep a bounded fallback in case the OS never reports it.
+        forceKill = setTimeout(finish, 1000)
+      }, 2000)
+      r.proc.kill('SIGTERM')
+    })
+
+    const tracked = stopping.finally(() => this.stopping.delete(classRoomId))
+    this.stopping.set(classRoomId, tracked)
+    return tracked
   }
 
   private reapIdle() {
     const now = Date.now()
-    for (const [id, r] of this.running) if (now - r.lastAccess > IDLE_MS) this.stop(id)
+    for (const [id, r] of this.running) if (now - r.lastAccess > IDLE_MS) void this.stop(id)
   }
 }
