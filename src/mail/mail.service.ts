@@ -44,7 +44,7 @@ export class MailService {
     }
     const info = await this.transporter.sendMail({ from: this.from, to, subject, text, html })
     // Nodemailer may resolve even when the SMTP server rejects every recipient.
-    return info.accepted.length > 0
+    return (info.accepted?.length ?? 0) > 0
   }
 
   async sendOtp(email: string, code: string) {
