@@ -24,3 +24,19 @@ export function isWithinWindow(start: string | null, end: string | null, timeZon
   const cur = minutesNow(timeZone, now)
   return s <= e ? cur >= s && cur <= e : cur >= s || cur <= e
 }
+
+
+/** Current local time in seconds since midnight for an exact access-window expiry. */
+export function secondsNow(timeZone: string, now = new Date()): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(now)
+  const h = Number(parts.find((p) => p.type === 'hour')?.value ?? 0) % 24
+  const m = Number(parts.find((p) => p.type === 'minute')?.value ?? 0)
+  const s = Number(parts.find((p) => p.type === 'second')?.value ?? 0)
+  return h * 3600 + m * 60 + s
+}
