@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
 import * as bcrypt from 'bcrypt'
 import { randomInt } from 'node:crypto'
 import { AuthUser } from '../common/decorators'
@@ -121,7 +121,12 @@ export class UsersService {
       select,
     })
     const sent = await this.sendCredentials(created.email, created.fullName, password)
-    return { user: this.view(created), mailSent: sent }
+    if (!sent) {
+      // Do not leave an account active when its one-time password was never delivered.
+      await this.prisma.account.delete({ where: { id: created.id } })
+      throw new ServiceUnavailableException('Не удалось отправить данные для входа. Аккаунт не создан — попробуйте ещё раз позже.')
+    }
+    return { user: this.view(created), mailSent: true }
   }
 
   async createEmployee(actor: AuthUser, dto: CreateEmployeeDto) {
@@ -142,7 +147,12 @@ export class UsersService {
       select,
     })
     const sent = await this.sendCredentials(created.email, created.fullName, password)
-    return { user: this.view(created), mailSent: sent }
+    if (!sent) {
+      // Do not leave an account active when its one-time password was never delivered.
+      await this.prisma.account.delete({ where: { id: created.id } })
+      throw new ServiceUnavailableException('Не удалось отправить данные для входа. Аккаунт не создан — попробуйте ещё раз позже.')
+    }
+    return { user: this.view(created), mailSent: true }
   }
 
   async update(actor: AuthUser, id: string, dto: UpdateUserDto) {
