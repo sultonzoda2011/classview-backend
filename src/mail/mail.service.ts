@@ -33,27 +33,29 @@ export class MailService {
     }
   }
 
-  private async send(to: string, subject: string, text: string, html: string) {
+  private async send(to: string, subject: string, text: string, html: string): Promise<boolean> {
     if (!this.transporter) {
       if (this.isProd) {
         // Защита на случай изменения конфигурации/логики после старта приложения.
         throw new Error('Почтовый транспорт не настроен')
       }
       this.logger.log(`[DEV MAIL] to=${to} subject="${subject}"\n${text}`)
-      return
+      return false
     }
-    await this.transporter.sendMail({ from: this.from, to, subject, text, html })
+    const info = await this.transporter.sendMail({ from: this.from, to, subject, text, html })
+    // Nodemailer may resolve even when the SMTP server rejects every recipient.
+    return info.accepted.length > 0
   }
 
   async sendOtp(email: string, code: string) {
     const text = `Ваш код для сброса пароля ClassView: ${code}\nКод действует 5 минут. Если вы не запрашивали сброс, просто проигнорируйте письмо.`
     const html = `<p>Ваш код для сброса пароля <b>ClassView</b>:</p><h2 style="letter-spacing:4px">${code}</h2><p>Код действует 5 минут. Если вы не запрашивали сброс, просто проигнорируйте письмо.</p>`
-    await this.send(email, 'ClassView: код подтверждения', text, html)
+    return this.send(email, 'ClassView: код подтверждения', text, html)
   }
 
   async sendCredentials(email: string, fullName: string, login: string, password: string) {
     const text = `Здравствуйте, ${fullName}!\nВаш аккаунт в ClassView создан.\nЛогин: ${login} (или email, или телефон)\nВременный пароль: ${password}\nПосле первого входа смените пароль.`
     const html = `<p>Здравствуйте, ${esc(fullName)}!</p><p>Ваш аккаунт в <b>ClassView</b> создан.</p><p>Логин: <b>${esc(login)}</b> (или email, или телефон)<br>Временный пароль: <b>${esc(password)}</b></p><p>После первого входа смените пароль.</p>`
-    await this.send(email, 'ClassView: данные для входа', text, html)
+    return this.send(email, 'ClassView: данные для входа', text, html)
   }
 }
