@@ -49,9 +49,9 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
     this.reaper = setInterval(() => this.reapIdle(), 15_000)
   }
 
-  onModuleDestroy() {
+  async onModuleDestroy() {
     if (this.reaper) clearInterval(this.reaper)
-    for (const id of [...this.running.keys()]) this.stop(id)
+    await Promise.all([...this.running.keys()].map((id) => this.stop(id)))
   }
 
   // ---------- подписанные ссылки: /Streams/files/:classRoomId/:exp/:sig/:file ----------
@@ -112,6 +112,13 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
   touch(classRoomId: number) {
     const r = this.running.get(classRoomId)
     if (r) r.lastAccess = Date.now()
+  }
+
+  /** Stop the camera process and clear HLS files when its URL changes or its classroom is deleted. */
+  async invalidate(classRoomId: number): Promise<void> {
+    const pending = this.starting.get(classRoomId)
+    if (pending) await pending.catch(() => undefined)
+    await this.stop(classRoomId)
   }
 
   fileDir(classRoomId: number) {
@@ -190,16 +197,39 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
     })
   }
 
-  private stop(classRoomId: number) {
+  private async stop(classRoomId: number): Promise<void> {
     const r = this.running.get(classRoomId)
     if (!r) return
     this.running.delete(classRoomId)
-    r.proc.kill('SIGTERM')
-    setTimeout(() => rmSync(r.dir, { recursive: true, force: true }), 2000)
+
+    await new Promise<void>((resolve) => {
+      let settled = false
+      let forceKill: NodeJS.Timeout | undefined
+      const finish = () => {
+        if (settled) return
+        settled = true
+        if (forceKill) clearTimeout(forceKill)
+        r.proc.off('exit', finish)
+        rmSync(r.dir, { recursive: true, force: true })
+        resolve()
+      }
+
+      if (r.proc.exitCode !== null || r.proc.signalCode !== null) {
+        finish()
+        return
+      }
+
+      r.proc.once('exit', finish)
+      forceKill = setTimeout(() => {
+        r.proc.kill('SIGKILL')
+        finish()
+      }, 2000)
+      r.proc.kill('SIGTERM')
+    })
   }
 
   private reapIdle() {
     const now = Date.now()
-    for (const [id, r] of this.running) if (now - r.lastAccess > IDLE_MS) this.stop(id)
+    for (const [id, r] of this.running) if (now - r.lastAccess > IDLE_MS) void this.stop(id)
   }
 }
