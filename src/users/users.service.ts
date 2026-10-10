@@ -90,8 +90,7 @@ export class UsersService {
 
   private async sendCredentials(email: string, fullName: string, password: string) {
     try {
-      await this.mail.sendCredentials(email, fullName, email, password)
-      return true
+      return await this.mail.sendCredentials(email, fullName, email, password)
     } catch (e) {
       this.logger.error(`Не удалось отправить данные для входа на ${email}: ${(e as Error).message}`)
       return false
