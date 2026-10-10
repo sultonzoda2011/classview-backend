@@ -1,10 +1,10 @@
-import { BadRequestException, HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from '@nestjs/common'
+import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
 import * as bcrypt from 'bcrypt'
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto'
 import { Result } from '../common/result'
-import { Account } from '../generated/prisma/client'
+import { Account, Prisma } from '../generated/prisma/client'
 import { MailService } from '../mail/mail.service'
 import { PrismaService } from '../prisma/prisma.service'
 import { ChangePasswordDto, LoginDto, ResetPasswordDto, SendOtpDto, VerifyOtpDto } from './dto'
@@ -63,23 +63,49 @@ export class AuthService {
     const acc = await this.prisma.account.findUnique({ where: { email: dto.email }, select: { id: true } })
     if (!acc) return generic
 
-    const last = await this.prisma.otp.findFirst({ where: { email: dto.email }, orderBy: { createdAt: 'desc' } })
-    if (last && Date.now() - last.createdAt.getTime() < OTP_RESEND_MS) {
-      throw new HttpException('Подождите минуту перед повторной отправкой кода', HttpStatus.TOO_MANY_REQUESTS)
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0')
+    const codeHash = this.hashCode(dto.email, code)
+    let otp: { id: number } | null = null
+
+    // Serialize requests for the same email so simultaneous clicks cannot invalidate
+    // a code after its email has already been sent. Retry PostgreSQL serialization conflicts.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        otp = await this.prisma.$transaction(async (tx) => {
+          const last = await tx.otp.findFirst({
+            where: { email: dto.email },
+            orderBy: { createdAt: 'desc' },
+          })
+          if (last && Date.now() - last.createdAt.getTime() < OTP_RESEND_MS) return null
+
+          await tx.otp.deleteMany({ where: { email: dto.email } })
+          return tx.otp.create({
+            data: { email: dto.email, codeHash, expiresAt: new Date(Date.now() + OTP_TTL_MS) },
+            select: { id: true },
+          })
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+        break
+      } catch (e) {
+        const code = (e as { code?: string }).code
+        if (code === 'P2034' && attempt < 2) continue
+        if (code === 'P2034') {
+          this.logger.warn(`Конкурирующие запросы OTP для ${dto.email}; повторите позже`)
+          return generic
+        }
+        throw e
+      }
     }
 
-    const code = String(randomInt(0, 1_000_000)).padStart(6, '0')
-    await this.prisma.$transaction([
-      this.prisma.otp.deleteMany({ where: { email: dto.email } }),
-      this.prisma.otp.create({
-        data: { email: dto.email, codeHash: this.hashCode(dto.email, code), expiresAt: new Date(Date.now() + OTP_TTL_MS) },
-      }),
-    ])
+    // A recent request (or a repeated request racing with it) gets the same public
+    // response as an unknown email, preventing account enumeration via HTTP status.
+    if (!otp) return generic
+
     try {
       await this.mail.sendOtp(dto.email, code)
     } catch (e) {
       this.logger.error(`Не удалось отправить OTP на ${dto.email}: ${(e as Error).message}`)
-      throw new HttpException('Не удалось отправить письмо, попробуйте позже', HttpStatus.BAD_GATEWAY)
+      // Do not leave an undelivered code active or force the user to wait a minute.
+      await this.prisma.otp.deleteMany({ where: { id: otp.id, used: false, verified: false } })
     }
     return generic
   }
