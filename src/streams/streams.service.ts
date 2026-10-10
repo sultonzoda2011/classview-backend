@@ -52,7 +52,10 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     if (this.reaper) clearInterval(this.reaper)
+    // Wait for startup attempts too, otherwise FFmpeg can become an orphan during shutdown.
+    await Promise.all([...this.starting.values()].map((pending) => pending.catch(() => undefined)))
     await Promise.all([...this.running.keys()].map((id) => this.stop(id)))
+    await Promise.all([...this.stopping.values()])
   }
 
   // ---------- подписанные ссылки: /Streams/files/:classRoomId/:exp/:sig/:file ----------
