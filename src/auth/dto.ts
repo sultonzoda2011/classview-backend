@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer'
-import { IsEmail, IsNotEmpty, IsString, Length, MaxLength, MinLength } from 'class-validator'
+import { IsEmail, IsNotEmpty, IsString, Length, Matches, MaxLength, MinLength } from 'class-validator'
 import { NormalizeEmail, TrimString } from '../common/transforms'
 
 export class LoginDto {
@@ -21,7 +21,7 @@ export class VerifyOtpDto {
   email: string
 
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
-  @IsString() @Length(6, 6, { message: 'Код должен состоять из 6 цифр' })
+  @IsString() @Length(6, 6, { message: 'Код должен состоять из 6 цифр' }) @Matches(/^\\d{6}$/, { message: 'Код должен состоять из 6 цифр' })
   otpCode: string
 }
 
