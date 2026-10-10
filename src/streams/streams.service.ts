@@ -43,7 +43,8 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
-    rmSync(this.baseDir, { recursive: true, force: true })
+    // Do not recursively delete STREAMS_DIR: deployments may point it at a persistent data directory.
+    // A class-specific HLS directory is cleared safely in start() before its FFmpeg process launches.
     mkdirSync(this.baseDir, { recursive: true })
     this.reaper = setInterval(() => this.reapIdle(), 15_000)
   }
