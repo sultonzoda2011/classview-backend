@@ -6,8 +6,8 @@ import { Role } from '../generated/prisma/client'
 import { CreateEmployeeDto, CreateUserDto, UpdateUserDto } from './dto'
 import { UsersService } from './users.service'
 
-const created = (r: { user: unknown; mailSent: boolean }, what: string) =>
-  new Result(r.user, r.mailSent ? `${what} создан, данные для входа отправлены на email` : `${what} создан, но письмо не отправлено: сообщите пароль вручную или сбросьте его`)
+// mailSent — отдельное поле в data, а не зашито в message: фронт сам решает, как это показать на любом языке
+const created = <T extends object>(r: { user: T; mailSent: boolean }) => new Result({ ...r.user, mailSent: r.mailSent }, 'Success')
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -25,13 +25,13 @@ export class UsersController {
   @Roles(Role.Admin, Role.SuperAdmin)
   @Post('create-employee')
   async createEmployee(@CurrentUser() user: AuthUser, @Body() dto: CreateEmployeeDto) {
-    return created(await this.users.createEmployee(user, dto), 'Сотрудник')
+    return created(await this.users.createEmployee(user, dto))
   }
 
   @Roles(Role.Admin, Role.SuperAdmin)
   @Post()
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateUserDto) {
-    return created(await this.users.create(user, dto), 'Пользователь')
+    return created(await this.users.create(user, dto))
   }
 
   /** Любой авторизованный: родитель видит только себя, админ свой центр */

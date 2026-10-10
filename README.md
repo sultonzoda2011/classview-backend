@@ -58,6 +58,11 @@ SuperAdmin нельзя создать через API, только `npm run see
 у родителя это ежедневное окно просмотра в формате `HH:mm` (часовой пояс
 `APP_TIMEZONE`).
 
+Ответ `POST /Users` и `POST /Users/create-employee` содержит поле `data.mailSent:
+boolean` — удалось ли отправить письмо с паролем. Это отдельное поле, а не часть
+текста `message` (который всегда "Success"), чтобы фронт мог сам показать
+результат на любом из своих языков, не завися от русского текста с сервера.
+
 ## Gmail для писем
 
 Google Account -> Security -> включить 2-Step Verification -> App passwords ->
@@ -67,9 +72,23 @@ Google Account -> Security -> включить 2-Step Verification -> App passwo
 ## Проверка
 
 ```bash
-npm test          # юнит-тесты окна доступа
+npm test          # юнит-тесты (окно доступа)
 npm run build
 ```
+
+### e2e
+
+Полный прогон поверх реально поднятого API: логин, роли, центры/классы/сотрудники,
+очистка. Нужен поднятый сервер с применённой миграцией и выполненным `npm run seed`:
+
+```bash
+npm run build
+npm run seed
+node dist/main.js &
+npm run test:e2e
+```
+
+Гоняется в CI (`.github/workflows/ci.yml`) на каждый push/PR с Postgres-сервисом.
 
 ## Стримы
 

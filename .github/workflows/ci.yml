@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: classview
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/classview
+      JWT_SECRET: ci-test-secret-not-for-production-0123456789
+      JWT_EXPIRES_IN: 12h
+      CORS_ORIGINS: http://localhost:5173
+      APP_TIMEZONE: Asia/Dushanbe
+      SEED_SUPERADMIN_NAME: CI SuperAdmin
+      SEED_SUPERADMIN_EMAIL: admin@example.com
+      SEED_SUPERADMIN_PHONE: '+992911111111'
+      SEED_SUPERADMIN_PASSWORD: ChangeMe123
+      SWAGGER: 'false'
+      PORT: '5990'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma migrate deploy
+      - run: npx tsc -p tsconfig.build.json --noEmit
+      - run: npm run build
+      - name: Unit tests
+        run: npm test
+      - name: Seed SuperAdmin
+        run: npm run seed
+      - name: Start API
+        run: nohup node dist/main.js > api.log 2>&1 &
+      - name: Wait for API
+        run: npx wait-on http://localhost:5990/api/health --timeout 30000
+      - name: E2E smoke tests
+        run: npm run test:e2e
+      - name: Show API log on failure
+        if: failure()
+        run: cat api.log || true
