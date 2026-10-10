@@ -43,11 +43,22 @@ export class ClassRoomsService {
   }
 
   async update(actor: AuthUser, id: number, dto: UpdateClassRoomDto) {
-    await this.getScoped(actor, id)
+    const current = await this.getScoped(actor, id)
     if (dto.centerId !== undefined) {
       this.assertCenter(actor, dto.centerId)
       const center = await this.prisma.center.findUnique({ where: { id: dto.centerId }, select: { id: true } })
       if (!center) throw new BadRequestException('Центр не найден')
+
+      // A classroom transfer must not silently move parents across center boundaries.
+      if (dto.centerId !== current.centerId) {
+        const assigned = await this.prisma.account.findFirst({
+          where: { classRoomId: id },
+          select: { id: true },
+        })
+        if (assigned) {
+          throw new BadRequestException('Сначала переназначьте пользователей: класс нельзя перенести в другой центр, пока к нему привязаны пользователи')
+        }
+      }
     }
     return this.prisma.classRoom.update({ where: { id }, data: dto, select })
   }
