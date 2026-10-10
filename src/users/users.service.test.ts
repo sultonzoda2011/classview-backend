@@ -37,7 +37,8 @@ test('removes a newly created parent account if credential email was not deliver
   const mail = {
     sendCredentials: async () => false,
   } as unknown as MailService
-  const service = new UsersService(prisma, mail)
+  const config = { get: (key: string) => key === 'NODE_ENV' ? 'production' : undefined }
+  const service = new UsersService(prisma, mail, config as never)
 
   await assert.rejects(
     () => service.create(
