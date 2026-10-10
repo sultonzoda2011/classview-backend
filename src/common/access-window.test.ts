@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { isWithinWindow, toMinutes } from './access-window'
+import { isWithinWindow, secondsNow, toMinutes } from './access-window'
 
 const at = (iso: string) => new Date(iso)
 
@@ -23,4 +23,9 @@ test('окно через полночь', () => {
 
 test('без окна доступа нет', () => {
   assert.equal(isWithinWindow(null, null, 'Asia/Dushanbe'), false)
+})
+
+
+test('secondsNow keeps second-level precision in the configured timezone', () => {
+  assert.equal(secondsNow('Asia/Dushanbe', at('2026-10-09T04:05:06.123Z')), 9 * 3600 + 5 * 60 + 6)
 })

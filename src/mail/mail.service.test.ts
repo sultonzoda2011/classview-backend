@@ -16,8 +16,10 @@ test('production requires SMTP credentials at startup', () => {
   )
 })
 
-test('development may run without SMTP and logs outgoing messages locally', () => {
-  assert.doesNotThrow(() => new MailService(config({ NODE_ENV: 'development' })))
+test('development may run without SMTP but reports that no email was delivered', async () => {
+  const mail = new MailService(config({ NODE_ENV: 'development' }))
+  const sent = await mail.sendCredentials('parent@example.com', 'Test Parent', 'parent@example.com', 'temporary')
+  assert.equal(sent, false)
 })
 
 test('production accepts configured SMTP credentials', () => {

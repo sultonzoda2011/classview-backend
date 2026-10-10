@@ -66,8 +66,9 @@ boolean` — удалось ли отправить письмо с пароле
 ## Gmail для писем
 
 Google Account -> Security -> включить 2-Step Verification -> App passwords ->
-создать пароль и записать в `MAIL_APP_PASSWORD`, адрес в `MAIL_USER`. Без этих
-переменных письма не отправляются, а в dev-режиме печатаются в консоль.
+создать пароль и записать в `MAIL_APP_PASSWORD`, адрес в `MAIL_USER`. В dev-режиме
+без этих переменных письма только печатаются в консоль и API возвращает `mailSent: false`;
+в production без SMTP приложение не запускается.
 
 ## Проверка
 

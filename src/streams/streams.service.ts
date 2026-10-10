@@ -5,7 +5,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { isWithinWindow, minutesNow, toMinutes } from '../common/access-window'
+import { isWithinWindow, secondsNow, toMinutes } from '../common/access-window'
 import { AuthUser } from '../common/decorators'
 import { Role } from '../generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
@@ -61,14 +61,16 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
   }
 
   verifyLink(classRoomId: number, exp: number, sig: string): boolean {
-    if (!Number.isFinite(exp) || exp * 1000 < Date.now()) return false
+    if (!Number.isFinite(exp) || exp * 1000 <= Date.now()) return false
     const a = Buffer.from(this.sign(classRoomId, exp), 'hex')
     const b = Buffer.from(sig, 'hex')
     return a.length === b.length && timingSafeEqual(a, b)
   }
 
   private buildLink(classRoomId: number, ttlSec: number) {
-    const exp = Math.floor(Date.now() / 1000) + Math.max(30, Math.min(ttlSec, MAX_LINK_SEC))
+    // Respect short parent access windows; a 30-second minimum would leak viewing time past the configured end.
+    const ttl = Math.max(1, Math.min(Math.floor(ttlSec), MAX_LINK_SEC))
+    const exp = Math.floor(Date.now() / 1000) + ttl
     return `/api/Streams/files/${classRoomId}/${exp}/${this.sign(classRoomId, exp)}/index.m3u8`
   }
 
@@ -91,12 +93,17 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
     })
     if (!acc?.classRoom) throw new NotFoundException('Вам не назначен класс')
     if (!acc.connect) throw new ForbiddenException('Доступ к камере отключён')
-    if (!isWithinWindow(acc.startTime, acc.endTime, this.tz)) {
+    const now = new Date()
+    if (!isWithinWindow(acc.startTime, acc.endTime, this.tz, now)) {
       throw new ForbiddenException(`Просмотр доступен с ${acc.startTime ?? '--:--'} до ${acc.endTime ?? '--:--'}`)
     }
     await this.ensureRunning(acc.classRoom.id, acc.classRoom.cameraUrl)
-    const end = toMinutes(acc.endTime)!
-    const left = ((end - minutesNow(this.tz) + 1440) % 1440) * 60
+    // The configured HH:mm end is inclusive through its final second.
+    const endSecond = toMinutes(acc.endTime)! * 60 + 59
+    const currentSecond = secondsNow(this.tz, now)
+    const left = endSecond >= currentSecond
+      ? endSecond - currentSecond + 1
+      : endSecond + 24 * 3600 - currentSecond + 1
     return this.buildLink(acc.classRoom.id, left)
   }
 
