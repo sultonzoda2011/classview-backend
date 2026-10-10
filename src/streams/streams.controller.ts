@@ -35,7 +35,8 @@ export class StreamsController {
     const path = join(this.streams.fileDir(classRoomId), file)
     if (!existsSync(path)) throw new NotFoundException('Поток не найден')
     this.streams.touch(classRoomId)
-    res.setHeader('Cache-Control', file.endsWith('.m3u8') ? 'no-store' : 'public, max-age=30')
+    // Camera footage is sensitive; do not let browsers, proxies, or CDNs cache signed stream files.
+    res.setHeader('Cache-Control', 'private, no-store')
     res.type(file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t')
     res.sendFile(path)
   }
