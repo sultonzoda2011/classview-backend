@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { AuthGuard } from '@nestjs/passport'
-import { AuthUser, IS_PUBLIC_KEY, ROLES_KEY } from '../common/decorators'
+import { ALLOW_MUST_CHANGE_PASSWORD_KEY, AuthUser, IS_PUBLIC_KEY, ROLES_KEY } from '../common/decorators'
 import { Role } from '../generated/prisma/client'
 
 @Injectable()
@@ -24,6 +24,22 @@ export class RolesGuard implements CanActivate {
     if (!roles || roles.length === 0) return true
     const user: AuthUser | undefined = context.switchToHttp().getRequest().user
     if (!user || !roles.includes(user.role)) throw new ForbiddenException('Недостаточно прав')
+    return true
+  }
+}
+
+
+/** Prevents accounts with temporary credentials from accessing business APIs. */
+@Injectable()
+export class MustChangePasswordGuard implements CanActivate {
+  constructor(private readonly reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const allowed = this.reflector.getAllAndOverride<boolean>(ALLOW_MUST_CHANGE_PASSWORD_KEY, [context.getHandler(), context.getClass()])
+    if (allowed) return true
+
+    const user: AuthUser | undefined = context.switchToHttp().getRequest().user
+    if (user?.mustChangePw) throw new ForbiddenException('Перед продолжением работы смените временный пароль')
     return true
   }
 }
