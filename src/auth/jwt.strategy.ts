@@ -28,7 +28,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!payload.nameid || payload.purpose) throw new UnauthorizedException('Недействительный токен')
     const acc = await this.prisma.account.findUnique({
       where: { id: payload.nameid },
-      select: { id: true, role: true, centerId: true, classRoomId: true },
+      select: { id: true, role: true, centerId: true, classRoomId: true, mustChangePw: true },
     })
     if (!acc) throw new UnauthorizedException('Пользователь не найден')
     return acc
