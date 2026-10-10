@@ -50,7 +50,9 @@ export class MailService {
   async sendOtp(email: string, code: string) {
     const text = `Ваш код для сброса пароля ClassView: ${code}\nКод действует 5 минут. Если вы не запрашивали сброс, просто проигнорируйте письмо.`
     const html = `<p>Ваш код для сброса пароля <b>ClassView</b>:</p><h2 style="letter-spacing:4px">${code}</h2><p>Код действует 5 минут. Если вы не запрашивали сброс, просто проигнорируйте письмо.</p>`
-    return this.send(email, 'ClassView: код подтверждения', text, html)
+    const sent = await this.send(email, 'ClassView: код подтверждения', text, html)
+    if (this.isProd && !sent) throw new Error('SMTP-сервер не принял письмо с OTP')
+    return sent
   }
 
   async sendCredentials(email: string, fullName: string, login: string, password: string) {
