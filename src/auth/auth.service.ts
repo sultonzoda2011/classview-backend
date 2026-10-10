@@ -47,7 +47,7 @@ export class AuthService {
   async login(dto: LoginDto) {
     const v = dto.phoneOrUserName.trim()
     const acc = await this.prisma.account.findFirst({
-      where: { OR: [{ email: v.toLowerCase() }, { phoneNumber: v.replace(/[\\s\\-()]/g, '') }, { userName: v }] },
+      where: { OR: [{ email: v.toLowerCase() }, { phoneNumber: v.replace(/[\s\-()]/g, '') }, { userName: v }] },
     })
     const ok = await bcrypt.compare(dto.password, acc?.passwordHash ?? DUMMY_HASH)
     if (!acc || !ok) throw new UnauthorizedException('Неверный логин или пароль')
