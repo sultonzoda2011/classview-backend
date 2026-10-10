@@ -230,7 +230,8 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
       r.proc.once('exit', finish)
       forceKill = setTimeout(() => {
         r.proc.kill('SIGKILL')
-        finish()
+        // Prefer the real exit event before deleting files; keep a bounded fallback in case the OS never reports it.
+        forceKill = setTimeout(finish, 1000)
       }, 2000)
       r.proc.kill('SIGTERM')
     })
