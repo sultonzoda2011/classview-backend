@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { AuthUser } from '../common/decorators'
 import { Role } from '../generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { StreamsService } from '../streams/streams.service'
 import { CreateClassRoomDto, UpdateClassRoomDto } from './dto'
 
 const select = { id: true, name: true, centerId: true, cameraUrl: true } as const
@@ -10,7 +11,7 @@ const select = { id: true, name: true, centerId: true, cameraUrl: true } as cons
 export class ClassRoomsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly streams: import('../streams/streams.service').StreamsService,
+    private readonly streams: StreamsService,
   ) {}
 
   async findAll(actor: AuthUser) {
