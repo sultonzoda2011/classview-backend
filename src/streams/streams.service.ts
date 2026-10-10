@@ -26,6 +26,7 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(StreamsService.name)
   private readonly running = new Map<number, Running>()
   private readonly starting = new Map<number, Promise<Running>>()
+  private readonly stopping = new Map<number, Promise<void>>()
   private readonly baseDir: string
   private readonly ffmpeg: string
   private readonly tz: string
@@ -126,6 +127,10 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async ensureRunning(classRoomId: number, cameraUrl: string): Promise<Running> {
+    // Prevent a new FFmpeg process from writing into a directory while its previous owner exits.
+    const stopping = this.stopping.get(classRoomId)
+    if (stopping) await stopping
+
     const existing = this.running.get(classRoomId)
     if (existing) {
       existing.lastAccess = Date.now()
@@ -197,12 +202,15 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
     })
   }
 
-  private async stop(classRoomId: number): Promise<void> {
+  private stop(classRoomId: number): Promise<void> {
+    const pending = this.stopping.get(classRoomId)
+    if (pending) return pending
+
     const r = this.running.get(classRoomId)
-    if (!r) return
+    if (!r) return Promise.resolve()
     this.running.delete(classRoomId)
 
-    await new Promise<void>((resolve) => {
+    const stopping = new Promise<void>((resolve) => {
       let settled = false
       let forceKill: NodeJS.Timeout | undefined
       const finish = () => {
@@ -226,6 +234,10 @@ export class StreamsService implements OnModuleInit, OnModuleDestroy {
       }, 2000)
       r.proc.kill('SIGTERM')
     })
+
+    const tracked = stopping.finally(() => this.stopping.delete(classRoomId))
+    this.stopping.set(classRoomId, tracked)
+    return tracked
   }
 
   private reapIdle() {
