@@ -6,10 +6,14 @@ export interface AuthUser {
   role: Role
   centerId: number | null
   classRoomId: number | null
+  mustChangePw?: boolean
 }
 
 export const IS_PUBLIC_KEY = 'isPublic'
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true)
+
+export const ALLOW_MUST_CHANGE_PASSWORD_KEY = 'allowMustChangePassword'
+export const AllowMustChangePassword = () => SetMetadata(ALLOW_MUST_CHANGE_PASSWORD_KEY, true)
 
 export const ROLES_KEY = 'roles'
 export const Roles = (...roles: Role[]) => SetMetadata(ROLES_KEY, roles)

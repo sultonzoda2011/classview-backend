@@ -24,13 +24,22 @@ export class MailService {
         auth: { user, pass },
       })
     } else {
-      this.logger.warn('MAIL_USER / MAIL_APP_PASSWORD не заданы: письма не отправляются, в dev-режиме печатаются в консоль')
+      const message = 'MAIL_USER / MAIL_APP_PASSWORD не заданы: отправка писем отключена'
+      if (this.isProd) {
+        // Не запускаем production с неработающим восстановлением пароля и доставкой учётных данных.
+        throw new Error(`${message}. Укажите обе переменные окружения.`)
+      }
+      this.logger.warn(`${message}; в dev-режиме письма печатаются в консоль`)
     }
   }
 
   private async send(to: string, subject: string, text: string, html: string) {
     if (!this.transporter) {
-      if (!this.isProd) this.logger.log(`[DEV MAIL] to=${to} subject="${subject}"\n${text}`)
+      if (this.isProd) {
+        // Защита на случай изменения конфигурации/логики после старта приложения.
+        throw new Error('Почтовый транспорт не настроен')
+      }
+      this.logger.log(`[DEV MAIL] to=${to} subject="${subject}"\n${text}`)
       return
     }
     await this.transporter.sendMail({ from: this.from, to, subject, text, html })

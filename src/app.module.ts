@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config'
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
 import { AuthModule } from './auth/auth.module'
-import { JwtAuthGuard, RolesGuard } from './auth/guards'
+import { JwtAuthGuard, MustChangePasswordGuard, RolesGuard } from './auth/guards'
 import { CentersModule } from './centers/centers.module'
 import { ClassRoomsModule } from './classrooms/classrooms.module'
 import { ResponseInterceptor } from './common/response.interceptor'
@@ -29,6 +29,7 @@ import { UsersModule } from './users/users.module'
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: MustChangePasswordGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
   ],

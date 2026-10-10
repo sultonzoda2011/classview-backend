@@ -86,18 +86,47 @@ export class AuthService {
 
   async verifyOtp(dto: VerifyOtpDto) {
     const invalid = new BadRequestException('Неверный или просроченный код')
-    const otp = await this.prisma.otp.findFirst({ where: { email: dto.email, used: false }, orderBy: { createdAt: 'desc' } })
-    if (!otp || otp.expiresAt < new Date() || otp.attempts >= OTP_MAX_ATTEMPTS) throw invalid
+    const now = new Date()
+    const otp = await this.prisma.otp.findFirst({
+      where: { email: dto.email, used: false, verified: false, expiresAt: { gt: now }, attempts: { lt: OTP_MAX_ATTEMPTS } },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (!otp) throw invalid
 
     const expected = Buffer.from(otp.codeHash, 'hex')
     const actual = Buffer.from(this.hashCode(dto.email, dto.otpCode), 'hex')
     if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
-      await this.prisma.otp.update({ where: { id: otp.id }, data: { attempts: { increment: 1 } } })
+      // Инкремент условный и атомарный: параллельные запросы не обходят лимит попыток.
+      await this.prisma.otp.updateMany({
+        where: {
+          id: otp.id,
+          used: false,
+          verified: false,
+          expiresAt: { gt: now },
+          attempts: { lt: OTP_MAX_ATTEMPTS },
+        },
+        data: { attempts: { increment: 1 } },
+      })
       throw invalid
     }
 
-    await this.prisma.otp.update({ where: { id: otp.id }, data: { verified: true } })
-    const token = await this.jwt.signAsync({ purpose: 'reset', email: dto.email, otpId: otp.id }, { secret: this.resetSecret, expiresIn: '10m' })
+    const token = await this.jwt.signAsync(
+      { purpose: 'reset', email: dto.email, otpId: otp.id },
+      { secret: this.resetSecret, expiresIn: '10m' },
+    )
+    // Только один запрос может подтвердить OTP и получить reset-токен.
+    const claimed = await this.prisma.otp.updateMany({
+      where: {
+        id: otp.id,
+        used: false,
+        verified: false,
+        expiresAt: { gt: now },
+        attempts: { lt: OTP_MAX_ATTEMPTS },
+      },
+      data: { verified: true },
+    })
+    if (claimed.count !== 1) throw invalid
+
     return new Result(token, 'Код подтверждён')
   }
 
@@ -112,14 +141,22 @@ export class AuthService {
     if (payload.purpose !== 'reset' || payload.email !== dto.email || !payload.otpId) {
       throw new BadRequestException('Токен сброса недействителен')
     }
-    const otp = await this.prisma.otp.findUnique({ where: { id: payload.otpId } })
-    if (!otp || !otp.verified || otp.used || otp.email !== dto.email) throw new BadRequestException('Токен сброса недействителен')
 
     const passwordHash = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS)
-    await this.prisma.$transaction([
-      this.prisma.account.update({ where: { email: dto.email }, data: { passwordHash, mustChangePw: false } }),
-      this.prisma.otp.update({ where: { id: otp.id }, data: { used: true } }),
-    ])
+    await this.prisma.$transaction(async (tx) => {
+      // Одноразово «захватываем» OTP внутри той же транзакции, что меняет пароль.
+      // При ошибке обновления аккаунта транзакция откатит used обратно в false.
+      const claimed = await tx.otp.updateMany({
+        where: { id: payload.otpId!, email: dto.email, verified: true, used: false },
+        data: { used: true },
+      })
+      if (claimed.count !== 1) throw new BadRequestException('Токен сброса недействителен')
+
+      await tx.account.update({
+        where: { email: dto.email },
+        data: { passwordHash, mustChangePw: false },
+      })
+    })
     return new Result(null, 'Пароль изменён')
   }
 
