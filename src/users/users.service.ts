@@ -1,4 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
+import {
+	BadRequestException,
+	ForbiddenException,
+	Injectable,
+	Logger,
+	NotFoundException,
+	ServiceUnavailableException
+} from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import * as bcrypt from 'bcrypt'
 import { randomInt } from 'node:crypto'
@@ -9,196 +16,416 @@ import { PrismaService } from '../prisma/prisma.service'
 import { CreateEmployeeDto, CreateUserDto, UpdateUserDto } from './dto'
 
 const select = {
-  id: true,
-  fullName: true,
-  childName: true,
-  phoneNumber: true,
-  email: true,
-  userName: true,
-  role: true,
-  connect: true,
-  startTime: true,
-  endTime: true,
-  createdAt: true,
-  classRoomId: true,
-  centerId: true,
+	id: true,
+	fullName: true,
+	childName: true,
+	phoneNumber: true,
+	email: true,
+	userName: true,
+	role: true,
+	connect: true,
+	startTime: true,
+	endTime: true,
+	createdAt: true,
+	classRoomId: true,
+	centerId: true
 } satisfies Prisma.AccountSelect
 
-type UserView = Prisma.AccountGetPayload<{ select: typeof select }>
+type UserView = Prisma.AccountGetPayload<{
+	select: typeof select
+}>
 
-// без похожих символов (0/O, 1/l/I)
-const PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
-const generatePassword = (len = 10) => Array.from({ length: len }, () => PASSWORD_ALPHABET[randomInt(PASSWORD_ALPHABET.length)]).join('')
+// Без похожих символов (0/O, 1/l/I).
+const PASSWORD_ALPHABET =
+	'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+
+const generatePassword = (len = 10) =>
+	Array.from(
+		{ length: len },
+		() => PASSWORD_ALPHABET[randomInt(PASSWORD_ALPHABET.length)]
+	).join('')
 
 @Injectable()
 export class UsersService {
-  private readonly logger = new Logger(UsersService.name)
+	private readonly logger = new Logger(UsersService.name)
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly mail: MailService,
-    private readonly config: ConfigService,
-  ) {}
+	constructor(
+		private readonly prisma: PrismaService,
+		private readonly mail: MailService,
+		private readonly config: ConfigService
+	) {}
 
-  /** Фронт ждёт childName строкой */
-  private view(u: UserView) {
-    return { ...u, childName: u.childName ?? '' }
-  }
+	/** Фронт ожидает childName строкой. */
+	private view(u: UserView) {
+		return {
+			...u,
+			childName: u.childName ?? ''
+		}
+	}
 
-  private isAdminLike(actor: AuthUser) {
-    return actor.role === Role.Admin || actor.role === Role.SuperAdmin
-  }
+	private isAdminLike(actor: AuthUser) {
+		return actor.role === Role.Admin || actor.role === Role.SuperAdmin
+	}
 
-  /** Центр, в котором actor имеет право работать */
-  private resolveCenter(actor: AuthUser, requested?: number): number {
-    if (actor.role === Role.Admin) {
-      if (actor.centerId == null) throw new ForbiddenException('Админ не привязан к центру')
-      if (requested !== undefined && requested !== actor.centerId) throw new ForbiddenException('Нет доступа к этому центру')
-      return actor.centerId
-    }
-    if (requested === undefined) throw new BadRequestException('Укажите центр')
-    return requested
-  }
+	/** Центр, в котором actor имеет право работать. */
+	private resolveCenter(actor: AuthUser, requested?: number): number {
+		if (actor.role === Role.Admin) {
+			if (actor.centerId == null) {
+				throw new ForbiddenException('Админ не привязан к центру')
+			}
 
-  private async assertClassRoomInCenter(classRoomId: number, centerId: number) {
-    const room = await this.prisma.classRoom.findUnique({ where: { id: classRoomId }, select: { centerId: true } })
-    if (!room) throw new BadRequestException('Класс не найден')
-    if (room.centerId !== centerId) throw new BadRequestException('Класс принадлежит другому центру')
-  }
+			if (requested !== undefined && requested !== actor.centerId) {
+				throw new ForbiddenException('Нет доступа к этому центру')
+			}
 
-  private async assertCenterExists(centerId: number) {
-    const c = await this.prisma.center.findUnique({ where: { id: centerId }, select: { id: true } })
-    if (!c) throw new BadRequestException('Центр не найден')
-  }
+			return actor.centerId
+		}
 
-  /** Только родители (role=User); Admin видит свой центр, SuperAdmin всех */
-  async findAll(actor: AuthUser) {
-    const rows = await this.prisma.account.findMany({
-      where: { role: Role.User, ...(actor.role === Role.Admin ? { centerId: actor.centerId ?? -1 } : {}) },
-      select,
-      orderBy: { createdAt: 'desc' },
-    })
-    return rows.map((r) => this.view(r))
-  }
+		if (requested === undefined) {
+			throw new BadRequestException('Укажите центр')
+		}
 
-  async findOne(actor: AuthUser, id: string) {
-    const target = await this.prisma.account.findUnique({ where: { id }, select })
-    if (!target) throw new NotFoundException('Пользователь не найден')
-    const self = target.id === actor.id
-    const sameCenterAdmin = actor.role === Role.Admin && target.centerId === actor.centerId
-    if (!self && actor.role !== Role.SuperAdmin && !sameCenterAdmin) throw new ForbiddenException('Нет доступа')
-    return this.view(target)
-  }
+		return requested
+	}
 
-  private async sendCredentials(email: string, fullName: string, password: string) {
-    try {
-      return await this.mail.sendCredentials(email, fullName, email, password)
-    } catch (e) {
-      this.logger.error(`Не удалось отправить данные для входа на ${email}: ${(e as Error).message}`)
-      return false
-    }
-  }
+	private async assertClassRoomInCenter(classRoomId: number, centerId: number) {
+		const room = await this.prisma.classRoom.findUnique({
+			where: { id: classRoomId },
+			select: { centerId: true }
+		})
 
-  async create(actor: AuthUser, dto: CreateUserDto) {
-    const centerId = this.resolveCenter(actor, dto.centerId)
-    await this.assertCenterExists(centerId)
-    await this.assertClassRoomInCenter(dto.classRoomId, centerId)
+		if (!room) {
+			throw new BadRequestException('Класс не найден')
+		}
 
-    const password = generatePassword()
-    const created = await this.prisma.account.create({
-      data: {
-        fullName: dto.fullName,
-        childName: dto.childName,
-        phoneNumber: dto.phoneNumber,
-        email: dto.email,
-        passwordHash: await bcrypt.hash(password, 10),
-        mustChangePw: true,
-        role: Role.User,
-        connect: dto.connect,
-        startTime: dto.startTime,
-        endTime: dto.endTime,
-        classRoomId: dto.classRoomId,
-        centerId,
-      },
-      select,
-    })
-    const sent = await this.sendCredentials(created.email, created.fullName, password)
-    if (!sent && this.config.get('NODE_ENV') === 'production') {
-      // Production must not leave an account active when its one-time password was not delivered.
-      await this.prisma.account.delete({ where: { id: created.id } })
-      throw new ServiceUnavailableException('Не удалось отправить данные для входа. Аккаунт не создан — попробуйте ещё раз позже.')
-    }
-    return { user: this.view(created), mailSent: sent }
-  }
+		if (room.centerId !== centerId) {
+			throw new BadRequestException('Класс принадлежит другому центру')
+		}
+	}
 
-  async createEmployee(actor: AuthUser, dto: CreateEmployeeDto) {
-    const centerId = this.resolveCenter(actor, dto.centerId)
-    await this.assertCenterExists(centerId)
+	private async assertCenterExists(centerId: number) {
+		const center = await this.prisma.center.findUnique({
+			where: { id: centerId },
+			select: { id: true }
+		})
 
-    const password = generatePassword()
-    const created = await this.prisma.account.create({
-      data: {
-        fullName: dto.fullName,
-        phoneNumber: dto.phoneNumber,
-        email: dto.email,
-        passwordHash: await bcrypt.hash(password, 10),
-        mustChangePw: true,
-        role: Role.Admin,
-        centerId,
-      },
-      select,
-    })
-    const sent = await this.sendCredentials(created.email, created.fullName, password)
-    if (!sent && this.config.get('NODE_ENV') === 'production') {
-      // Production must not leave an account active when its one-time password was not delivered.
-      await this.prisma.account.delete({ where: { id: created.id } })
-      throw new ServiceUnavailableException('Не удалось отправить данные для входа. Аккаунт не создан — попробуйте ещё раз позже.')
-    }
-    return { user: this.view(created), mailSent: sent }
-  }
+		if (!center) {
+			throw new BadRequestException('Центр не найден')
+		}
+	}
 
-  async update(actor: AuthUser, id: string, dto: UpdateUserDto) {
-    const target = await this.prisma.account.findUnique({ where: { id }, select: { id: true, role: true, centerId: true, classRoomId: true } })
-    if (!target) throw new NotFoundException('Пользователь не найден')
-    if (target.role !== Role.User) throw new ForbiddenException('Редактировать можно только родителей')
-    if (actor.role === Role.Admin && target.centerId !== actor.centerId) throw new ForbiddenException('Нет доступа')
+	/**
+	 * Получение списка пользователей с учётом роли.
+	 *
+	 * SuperAdmin:
+	 * - видит все аккаунты, включая Admin и User;
+	 * - не видит собственный аккаунт в списке.
+	 *
+	 * Admin:
+	 * - видит только родителей (Role.User);
+	 * - видит только родителей своего центра;
+	 * - не видит собственный аккаунт в списке.
+	 *
+	 * Поиск выполняется внутри разрешённой выборки,
+	 * поэтому не расширяет права доступа.
+	 */
+	async findAll(actor: AuthUser, search?: string) {
+		const accessWhere: Prisma.AccountWhereInput =
+			actor.role === Role.SuperAdmin
+				? {
+						id: { not: actor.id }
+					}
+				: {
+						role: Role.User,
+						centerId: actor.centerId ?? -1,
+						id: { not: actor.id }
+					}
 
-    // центр меняет только SuperAdmin; Admin может лишь «передать» свой же центр
-    const nextCenter = dto.centerId !== undefined ? this.resolveCenter(actor, dto.centerId) : target.centerId
-    if (nextCenter == null) throw new BadRequestException('Укажите центр')
-    if (dto.centerId !== undefined) await this.assertCenterExists(nextCenter)
+		const term = search?.trim()
 
-    const nextRoom = dto.classRoomId ?? target.classRoomId
-    if (nextRoom != null && (dto.classRoomId !== undefined || dto.centerId !== undefined)) {
-      await this.assertClassRoomInCenter(nextRoom, nextCenter)
-    }
+		const where: Prisma.AccountWhereInput = term
+			? {
+					AND: [
+						accessWhere,
+						{
+							OR: [
+								{
+									fullName: {
+										contains: term,
+										mode: 'insensitive'
+									}
+								},
+								{
+									childName: {
+										contains: term,
+										mode: 'insensitive'
+									}
+								},
+								{
+									phoneNumber: {
+										contains: term
+									}
+								},
+								{
+									email: {
+										contains: term,
+										mode: 'insensitive'
+									}
+								},
+								{
+									userName: {
+										contains: term,
+										mode: 'insensitive'
+									}
+								}
+							]
+						}
+					]
+				}
+			: accessWhere
 
-    const updated = await this.prisma.account.update({
-      where: { id },
-      data: {
-        fullName: dto.fullName,
-        childName: dto.childName,
-        phoneNumber: dto.phoneNumber,
-        email: dto.email,
-        connect: dto.connect,
-        startTime: dto.startTime,
-        endTime: dto.endTime,
-        classRoomId: dto.classRoomId,
-        centerId: dto.centerId !== undefined ? nextCenter : undefined,
-      },
-      select,
-    })
-    return this.view(updated)
-  }
+		const rows = await this.prisma.account.findMany({
+			where,
+			select,
+			orderBy: {
+				createdAt: 'desc'
+			}
+		})
 
-  async remove(actor: AuthUser, id: string) {
-    if (id === actor.id) throw new BadRequestException('Нельзя удалить самого себя')
-    const target = await this.prisma.account.findUnique({ where: { id }, select: { role: true, centerId: true } })
-    if (!target) throw new NotFoundException('Пользователь не найден')
-    if (target.role === Role.SuperAdmin) throw new ForbiddenException('SuperAdmin удалить нельзя')
-    if (actor.role === Role.Admin && (target.role !== Role.User || target.centerId !== actor.centerId)) {
-      throw new ForbiddenException('Нет доступа')
-    }
-    await this.prisma.account.delete({ where: { id } })
-  }
+		return rows.map(row => this.view(row))
+	}
+
+	async findOne(actor: AuthUser, id: string) {
+		const target = await this.prisma.account.findUnique({
+			where: { id },
+			select
+		})
+
+		if (!target) {
+			throw new NotFoundException('Пользователь не найден')
+		}
+
+		const self = target.id === actor.id
+
+		const sameCenterAdmin =
+			actor.role === Role.Admin && target.centerId === actor.centerId
+
+		if (!self && actor.role !== Role.SuperAdmin && !sameCenterAdmin) {
+			throw new ForbiddenException('Нет доступа')
+		}
+
+		return this.view(target)
+	}
+
+	private async sendCredentials(
+		email: string,
+		fullName: string,
+		password: string
+	) {
+		try {
+			return await this.mail.sendCredentials(email, fullName, email, password)
+		} catch (e) {
+			this.logger.error(
+				`Не удалось отправить данные для входа на ${email}: ${
+					(e as Error).message
+				}`
+			)
+
+			return false
+		}
+	}
+
+	async create(actor: AuthUser, dto: CreateUserDto) {
+		const centerId = this.resolveCenter(actor, dto.centerId)
+
+		await this.assertCenterExists(centerId)
+
+		await this.assertClassRoomInCenter(dto.classRoomId, centerId)
+
+		const password = generatePassword()
+
+		const created = await this.prisma.account.create({
+			data: {
+				fullName: dto.fullName,
+				childName: dto.childName,
+				phoneNumber: dto.phoneNumber,
+				email: dto.email,
+				passwordHash: await bcrypt.hash(password, 10),
+				mustChangePw: true,
+				role: Role.User,
+				connect: dto.connect,
+				startTime: dto.startTime,
+				endTime: dto.endTime,
+				classRoomId: dto.classRoomId,
+				centerId
+			},
+			select
+		})
+
+		const sent = await this.sendCredentials(
+			created.email,
+			created.fullName,
+			password
+		)
+
+		if (!sent && this.config.get('NODE_ENV') === 'production') {
+			// В production не оставляем аккаунт активным,
+			// если временный пароль не удалось отправить.
+			await this.prisma.account.delete({
+				where: { id: created.id }
+			})
+
+			throw new ServiceUnavailableException(
+				'Не удалось отправить данные для входа. ' +
+					'Аккаунт не создан — попробуйте ещё раз позже.'
+			)
+		}
+
+		return {
+			user: this.view(created),
+			mailSent: sent
+		}
+	}
+
+	async createEmployee(actor: AuthUser, dto: CreateEmployeeDto) {
+		const centerId = this.resolveCenter(actor, dto.centerId)
+
+		await this.assertCenterExists(centerId)
+
+		const password = generatePassword()
+
+		const created = await this.prisma.account.create({
+			data: {
+				fullName: dto.fullName,
+				phoneNumber: dto.phoneNumber,
+				email: dto.email,
+				passwordHash: await bcrypt.hash(password, 10),
+				mustChangePw: true,
+				role: Role.Admin,
+				centerId
+			},
+			select
+		})
+
+		const sent = await this.sendCredentials(
+			created.email,
+			created.fullName,
+			password
+		)
+
+		if (!sent && this.config.get('NODE_ENV') === 'production') {
+			await this.prisma.account.delete({
+				where: { id: created.id }
+			})
+
+			throw new ServiceUnavailableException(
+				'Не удалось отправить данные для входа. ' +
+					'Аккаунт не создан — попробуйте ещё раз позже.'
+			)
+		}
+
+		return {
+			user: this.view(created),
+			mailSent: sent
+		}
+	}
+
+	async update(actor: AuthUser, id: string, dto: UpdateUserDto) {
+		const target = await this.prisma.account.findUnique({
+			where: { id },
+			select: {
+				id: true,
+				role: true,
+				centerId: true,
+				classRoomId: true
+			}
+		})
+
+		if (!target) {
+			throw new NotFoundException('Пользователь не найден')
+		}
+
+		if (target.role !== Role.User) {
+			throw new ForbiddenException('Редактировать можно только родителей')
+		}
+
+		if (actor.role === Role.Admin && target.centerId !== actor.centerId) {
+			throw new ForbiddenException('Нет доступа')
+		}
+
+		// Центр меняет только SuperAdmin.
+		// Admin может работать только со своим центром.
+		const nextCenter =
+			dto.centerId !== undefined
+				? this.resolveCenter(actor, dto.centerId)
+				: target.centerId
+
+		if (nextCenter == null) {
+			throw new BadRequestException('Укажите центр')
+		}
+
+		if (dto.centerId !== undefined) {
+			await this.assertCenterExists(nextCenter)
+		}
+
+		const nextRoom = dto.classRoomId ?? target.classRoomId
+
+		if (
+			nextRoom != null &&
+			(dto.classRoomId !== undefined || dto.centerId !== undefined)
+		) {
+			await this.assertClassRoomInCenter(nextRoom, nextCenter)
+		}
+
+		const updated = await this.prisma.account.update({
+			where: { id },
+			data: {
+				fullName: dto.fullName,
+				childName: dto.childName,
+				phoneNumber: dto.phoneNumber,
+				email: dto.email,
+				connect: dto.connect,
+				startTime: dto.startTime,
+				endTime: dto.endTime,
+				classRoomId: dto.classRoomId,
+				centerId: dto.centerId !== undefined ? nextCenter : undefined
+			},
+			select
+		})
+
+		return this.view(updated)
+	}
+
+	async remove(actor: AuthUser, id: string) {
+		if (id === actor.id) {
+			throw new BadRequestException('Нельзя удалить самого себя')
+		}
+
+		const target = await this.prisma.account.findUnique({
+			where: { id },
+			select: {
+				role: true,
+				centerId: true
+			}
+		})
+
+		if (!target) {
+			throw new NotFoundException('Пользователь не найден')
+		}
+
+		if (target.role === Role.SuperAdmin) {
+			throw new ForbiddenException('SuperAdmin удалить нельзя')
+		}
+
+		if (
+			actor.role === Role.Admin &&
+			(target.role !== Role.User || target.centerId !== actor.centerId)
+		) {
+			throw new ForbiddenException('Нет доступа')
+		}
+
+		await this.prisma.account.delete({
+			where: { id }
+		})
+	}
 }
